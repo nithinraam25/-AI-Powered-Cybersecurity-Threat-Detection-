@@ -4,273 +4,364 @@ An offline, defensive cybersecurity threat detection prototype and security oper
 
 ---
 
-## 1. Project Overview & Problem Statement
+## 1. Executive Summary and Problem Statement
 
-Modern security operations centers (SOCs) analyze high-volume network telemetry to identify malicious activity. Traditional Intrusion Detection Systems (IDS) rely heavily on static signature rules, which can struggle to identify complex traffic anomalies or zero-day variants, while standalone statistical machine learning models often suffer from high false-alarm rates or lack explainability.
+### 1.1 The Operational Challenge
+Modern Security Operations Centers (SOCs) face two chronic challenges when analyzing network traffic telemetry:
+1. **Signature Rigidity:** Traditional intrusion detection systems (IDS) depend on deterministic signatures. While these rules provide zero false positives on known exploits, they fail against subtle structural anomalies, zero-day variations, and polymorphic traffic patterns.
+2. **Black-Box Alert Fatigue:** Standalone machine learning models can detect novel statistical anomalies, but they frequently generate unacceptable false-alarm rates and lack transparent rationale, forcing security analysts to waste critical triage time investigating false positives.
 
-This portfolio project implements a defensive, modular threat detection architecture that combines:
-* **Statistical Machine Learning:** A frozen Random Forest binary classifier trained on canonical network flow features to score attack probabilities.
-* **Deterministic Heuristic Security Rules:** Configurable, explainable rules detecting specific structural network anomalies (e.g., LAND topology anomalies, high-volume SYN flood bursts, connection rejection bursts, and horizontal port sweeps).
-* **Correlation & Triage Engine:** A hybrid detection engine synthesizing statistical model decisions with rule matches to assign operational triage dispositions (`BENIGN`, `MODEL_DETECTED`, `RULE_DETECTED`, `CORROBORATED`) and operational severity levels.
-* **Persistent Alert Storage:** An ACID-compliant SQLite repository supporting fingerprint-based active alert deduplication and strict incident lifecycle state transitions (`NEW` $\rightarrow$ `ACKNOWLEDGED` $\rightarrow$ `RESOLVED`).
-* **Security Operations Console:** An interactive Streamlit dashboard featuring an Alert Triage queue, an offline Detection Demonstration interface, and a technical Model & Rules specification console.
-
-> **Defensive & Educational Scope Notice:**<br>
-> This project is designed exclusively for educational research, benchmarking, and defensive portfolio demonstration. It evaluates static network flow records from public benchmark data; it does **not** capture live network packets, monitor stream interfaces, perform inline traffic blocking, or provide production enterprise network protection.
-
----
-
-## 2. Implemented Capabilities
-
-1. **NSL-KDD Ingestion & Schema Auditing:**
-   * Strict schema contracts for the 41 canonical network flow features, plus target label (`class`) and difficulty score (`difficulty_level`).
-   * Non-destructive data validation detecting missing values, duplicates, class distributions, and uncatalogued attack variants.
-   * Standalone dataset validation CLI (`threat_detection.data.cli`).
-2. **Leakage-Resistant Preprocessing Pipeline:**
-   * Strict separation of traffic features and ground-truth target labels.
-   * Scikit-Learn `ColumnTransformer` composition applying `OneHotEncoder(handle_unknown='ignore')` to the 3 categorical features (`protocol_type`, `service`, `flag`), expanding them to 84 binary indicators, and passing the 38 numerical features through directly (`passthrough`), yielding exactly 122 dense features with zero imputation and zero feature scaling.
-3. **Random Forest Binary Classifier:**
-   * Stratified training and validation partitioning with frozen hyperparameter tuning (`n_estimators=100`, `max_depth=20`, `class_weight='balanced'`, `random_state=42`).
-   * Self-contained artifact container (`ThreatDetectionArtifact`) encapsulating fitted preprocessor, model weights, and training telemetry.
-4. **Deterministic Heuristic Security Rules:**
-   * `RULE-LAND-001` (Severity: `HIGH`): Detects self-referential connections where source and destination addresses/ports match (`land == 1`).
-   * `RULE-DOS-SYN-001` (Severity: `MEDIUM`): Detects high-volume unestablished SYN flood bursts (`count >= 100`, `serror_rate >= 0.80`, flag in `{'S0', 'S1', 'S2', 'S3', 'RSTOS0'}`).
-   * `RULE-DOS-REJ-001` (Severity: `MEDIUM`): Detects repeated connection rejection hammering (`count >= 50`, `rerror_rate >= 0.80`, flag in `{'REJ', 'RSTO', 'RSTR'}`).
-   * `RULE-PROBE-SCAN-001` (Severity: `MEDIUM`): Detects multi-service vertical/horizontal port sweeps (`count >= 50`, `diff_srv_rate >= 0.70`, `dst_host_diff_srv_rate >= 0.70`).
-5. **Hybrid Threat Detection Engine:**
-   * Generates deterministic SHA-256 digests over the 41 canonical feature name-value pairs (`record_fingerprint`).
-   * Synthesizes model predictions and rule triggers into standardized operational dispositions (`BENIGN`, `MODEL_DETECTED`, `RULE_DETECTED`, `CORROBORATED`).
-   * Emits human-readable diagnostic explanations for analyst triage.
-6. **SQLite Alert Storage & Lifecycle Management:**
-   * Partial unique index preventing duplicate active (`NEW` or `ACKNOWLEDGED`) alerts for identical flow fingerprints while preserving historically resolved records.
-   * Merges duplicate observations by incrementing `occurrence_count`, updating timestamps, aggregating rule evidence, and preserving severity without downgrading.
-   * Enforces strict two-step lifecycle state transitions (`NEW` $\rightarrow$ `ACKNOWLEDGED` $\rightarrow$ `RESOLVED`), blocking invalid direct closures.
-7. **Interactive Streamlit Security Console:**
-   * **Alert Triage Tab:** Real-time KPI summary cards, multi-column status and severity filtering, in-memory page search, alert investigation tabs, and analyst lifecycle actions.
-   * **Detection Demo Tab:** Offline evaluation of curated NSL-KDD benchmark presets or single-row CSV uploads with side-by-side ML and rule breakdowns, and optional alert persistence.
-   * **Model & Rules Tab:** Complete technical architecture specifications, precomputed benchmark evaluation metrics, confusion matrix analysis, and rule threshold documentation.
-8. **Automated Test Suite & Evaluation Tooling:**
-   * 155 automated unit and end-to-end integration tests with 100% pass rate.
-   * Standalone offline model evaluation CLI (`threat_detection.detection.evaluate_cli`).
-
----
-
-## 3. Architecture & Data Flow
-
-The diagram below illustrates how a 41-feature network traffic record transitions through validation, model scoring, rule matching, correlation, alert persistence, and dashboard visualization:
+### 1.2 The Defensive Solution
+This project implements a modular, hybrid threat detection architecture designed for educational research, security operations triage demonstration, and offline network telemetry analysis. The architecture combines:
+* **Statistical Machine Learning:** A frozen Random Forest binary classifier trained on canonical network flow features to compute attack probabilities.
+* **Deterministic Heuristic Rules:** Domain-specific security rules targeting concrete network anomalies such as LAND topology attacks, SYN flood bursts, connection rejection hammering, and horizontal port sweeps.
+* **Hybrid Correlation Engine:** A decision synthesis layer that merges statistical model outputs with deterministic rule triggers into standardized triage dispositions: `BENIGN`, `MODEL_DETECTED`, `RULE_DETECTED`, and `CORROBORATED`.
+* **Deduplication-Aware Incident Persistence:** An ACID-compliant SQLite repository utilizing partial unique indexes to automatically deduplicate active alerts by deterministic flow fingerprint and enforce strict incident lifecycle progression (`NEW` -> `ACKNOWLEDGED` -> `RESOLVED`).
+* **Security Operations Console:** An interactive Streamlit console featuring an Alert Triage queue, an offline Detection Demonstration sandbox, and a Model and Rules technical specification viewer.
 
 ```text
-       Raw Traffic Flow Record (41 Canonical Features)
-         │  (Dict / Series / Validated Single-Row CSV)
-         ▼
- ┌──────────────────────────────────────────────────────────────┐
- │                     Input Validation                         │
- │  • Programmatic API: validate_traffic_features()             │
- │  • Demo Upload Boundary: parse_and_validate_csv_upload()     │
- └──────────────────────────────┬───────────────────────────────┘
-                                │
-                                ▼
- ┌──────────────────────────────────────────────────────────────┐
- │                  ThreatDetectionEngine                       │
- │                                                              │
- │   ┌───────────────────────┐      ┌───────────────────────┐   │
- │   │ Preprocessing (122 D) │      │  Deterministic Rules  │   │
- │   │ • OneHotEncoder (84)  │      │  • LAND Attack        │   │
- │   │ • Passthrough (38)    │      │  • SYN Flood Burst    │   │
- │   └──────────┬────────────┘      │  • Rejection Burst    │   │
- │              │                   │  • Multi-Port Sweep   │   │
- │              ▼                   └──────────┬────────────┘   │
- │   ┌───────────────────────┐                 │                │
- │   │ Frozen Random Forest  │                 │                │
- │   │ • Binary Decision     │                 │                │
- │   │ • Attack Probability  │                 │                │
- │   └──────────┬────────────┘                 │                │
- │              │                              │                │
- │              ▼                              ▼                │
- │       [Model Decision]              [Rule Matches]           │
- │              │                              │                │
- │              └──────────────┬───────────────┘                │
- │                             ▼                                │
- │             [Correlation & Disposition Synthesis]            │
- │             [Deterministic SHA-256 Fingerprint]              │
- └─────────────────────────────┬────────────────────────────────┘
-                               │
-                               ▼
- ┌──────────────────────────────────────────────────────────────┐
- │                  DetectionFinding (In-Memory)                │
- │  Disposition: BENIGN / MODEL_DETECTED / RULE_DETECTED /      │
- │               CORROBORATED                                   │
- │  Overall Severity: INFORMATIONAL / MEDIUM / HIGH             │
- └─────────────────────────────┬────────────────────────────────┘
-                               │ (Optional User Action)
-                               ▼
- ┌──────────────────────────────────────────────────────────────┐
- │                 AlertRepository (SQLite)                     │
- │  • Deduplicates on Active Fingerprint (NEW / ACKNOWLEDGED)   │
- │  • Increments occurrence_count on repeat observations        │
- │  • Enforces Lifecycle: NEW -> ACKNOWLEDGED -> RESOLVED       │
- └─────────────────────────────┬────────────────────────────────┘
-                               │
-                               ▼
- ┌──────────────────────────────────────────────────────────────┐
- │              Streamlit Security Operations Console           │
- │  • Alert Triage Queue & KPI Summaries                        │
- │  • Offline Detection Demonstration                           │
- │  • Model Architecture & Evaluation Documentation             │
- └──────────────────────────────────────────────────────────────┘
++--------------------------------------------------------------------------------------------------+
+|                                    DEFENSIVE AND EDUCATIONAL SCOPE NOTICE                        |
+|                                                                                                  |
+| This system is designed exclusively for educational research, benchmarking, and defensive triage |
+| demonstrations. It evaluates static network flow records from public benchmark data. It does not |
+| capture live network packets, monitor stream interfaces, perform inline traffic blocking, or     |
+| provide production enterprise network protection.                                                |
++--------------------------------------------------------------------------------------------------+
 ```
 
 ---
 
-## 4. Technology Stack
+## 2. Visual Overview and Interface Gallery
 
-* **Language:** Python 3.9+ (Tested on Python 3.13)
-* **Data Engineering & Preprocessing:** Pandas, NumPy, Scikit-Learn (`ColumnTransformer`, `OneHotEncoder`)
-* **Machine Learning & Serialization:** Scikit-Learn (`RandomForestClassifier`), Joblib
-* **Data Storage:** SQLite (Embedded relational storage with transaction control and partial unique indexes)
-* **User Interface:** Streamlit (Multi-tab security operations console)
-* **Visualization & Reporting:** Matplotlib, Seaborn
-* **Testing & Quality Assurance:** Pytest
+The user interface is organized into three dedicated operational consoles in Streamlit. Below are direct references to the visual assets maintained in the repository:
+
+### 2.1 System Architecture Flow
+![System Architecture Diagram](images/system_architecture_diagram.png)
+*High-level data flow illustrating telemetry ingestion, feature preprocessing, parallel model and rule evaluation, SHA-256 fingerprinting, alert deduplication, and triage presentation.*
+
+### 2.2 Security Operations Console: Alert Triage Queue
+![Security Operations Console - Alert Triage](images/dashboard_alert_triage.png)
+*The primary analyst console displaying real-time KPI metrics, active incident filtering by status and severity, free-text search, and explicit two-step lifecycle state controls.*
+
+### 2.3 Detection Demonstration Sandbox
+![Detection Demonstration Console](images/dashboard_detection_demo.png)
+*Interactive testing sandbox allowing analysts to evaluate curated NSL-KDD attack presets or upload single-row CSV records with immediate side-by-side ML scoring and heuristic rule diagnostics.*
+
+### 2.4 Model and Rules Technical Specifications
+![Model and Rules Technical Specification](images/dashboard_model_and_rules.png)
+*Complete architectural documentation tab showcasing confusion matrix breakdowns, false-positive metrics, ROC-AUC performance curves, and deterministic rule criteria.*
+
+*(Note: Image files are maintained in the `images/` directory. If screenshots are pending upload, please refer to the technical diagrams and CLI output logs below).*
 
 ---
 
-## 5. Repository Structure
+## 3. System Architecture and Methodology
+
+The system processes 41-feature network telemetry records through a sequential, leakage-resistant pipeline:
+
+```mermaid
+flowchart TD
+    A[Raw Network Telemetry Record<br/>41 Canonical Features] --> B[Input Validation Layer<br/>Schema & Type Integrity]
+    B --> C[Preprocessing Pipeline<br/>ColumnTransformer 122 Dense Features]
+    B --> D[Deterministic Heuristics<br/>4 Domain Security Rules]
+    C --> E[Frozen Random Forest<br/>Binary Classifier: 100 Trees]
+    D --> F[Rule Evaluation Engine<br/>Severity & Rationale Mapping]
+    E --> G[Model Prediction<br/>Attack Probability Score]
+    F --> H[Hybrid Correlation Engine]
+    G --> H
+    H --> I[Deterministic SHA-256 Digest<br/>Normalized Record Fingerprint]
+    H --> J[Operational Disposition Synthesis<br/>BENIGN / MODEL / RULE / CORROBORATED]
+    I --> K[SQLite Alert Repository<br/>Partial Unique Index Deduplication]
+    J --> K
+    K --> L[Streamlit Security Operations Console<br/>Triage Queue & Incident Management]
+```
+
+### 3.1 Data Flow Specifications
+1. **Telemetry Input:** Receives a 41-feature network session record in dictionary, Pandas Series, or CSV format.
+2. **Schema Audit:** Verifies the presence of all 41 canonical features, validates categorical values (`protocol_type`, `service`, `flag`), and checks numerical ranges.
+3. **Feature Preprocessing:** Encodes the 3 categorical variables into 84 binary indicators via `OneHotEncoder(handle_unknown='ignore')` and passes the 38 numerical features through directly, producing exactly 122 dense features with zero imputation and zero data scaling.
+4. **Parallel Evaluation:**
+   * The Random Forest classifier computes an attack probability and binary label (`normal` vs `attack`).
+   * The heuristic rule engine checks four deterministic security rules.
+5. **Correlation and Fingerprinting:**
+   * Computes a canonical SHA-256 fingerprint over the 41 feature name-value pairs.
+   * Synthesizes findings into a final triage disposition and composite severity.
+6. **Persistence and Triage:**
+   * Inserts or updates an alert record in SQLite.
+   * If an active alert (`NEW` or `ACKNOWLEDGED`) with the same fingerprint exists, the system increments `occurrence_count`, updates timestamps, and maintains the highest severity without duplicate rows.
+
+---
+
+## 4. Detection Engine and Security Rules
+
+### 4.1 Hybrid Triage Dispositions
+
+| Operational Disposition | Definition and Operational Criteria | Recommended SOC Action |
+| :--- | :--- | :--- |
+| **BENIGN** | Model predicts normal traffic and zero heuristic security rules trigger. | No alert generated; telemetry logged for baseline auditing. |
+| **MODEL_DETECTED** | Random Forest flags suspicious statistical patterns; no heuristic rules match. | Standard Priority Triage: Analyst investigates feature anomalies. |
+| **RULE_DETECTED** | A deterministic heuristic security rule triggers; Random Forest scores below threshold. | High Priority Triage: Known exploit pattern identified. |
+| **CORROBORATED** | Both the statistical model and one or more heuristic rules flag the record. | Critical Immediate Triage: High-confidence threat corroboration. |
+
+### 4.2 Deterministic Heuristic Security Rules
+
+The engine implements four explainable security rules designed to capture well-documented network attack patterns:
+
+#### RULE-LAND-001: Self-Referential Connection (LAND Attack)
+* **Severity:** `HIGH`
+* **Condition:** `land == 1`
+* **Technical Description:** Detects spoofed packets where source IP and destination IP (or ports) are identical, designed to cause denial of service by forcing a host to respond to itself.
+
+#### RULE-DOS-SYN-001: High-Volume Unestablished SYN Burst (SYN Flood)
+* **Severity:** `MEDIUM`
+* **Condition:** `count >= 100` AND `serror_rate >= 0.80` AND `flag in {'S0', 'S1', 'S2', 'S3', 'RSTOS0'}`
+* **Technical Description:** Identifies denial of service attacks characterized by high rates of unanswered TCP SYN connection attempts with elevated SYN-error ratios.
+
+#### RULE-DOS-REJ-001: Repeated Connection Rejection Hammering (REJ Flood)
+* **Severity:** `MEDIUM`
+* **Condition:** `count >= 50` AND `rerror_rate >= 0.80` AND `flag in {'REJ', 'RSTO', 'RSTR'}`
+* **Technical Description:** Detects brute-force connection hammering resulting in high rates of immediate server connection rejections (RST/REJ).
+
+#### RULE-PROBE-SCAN-001: Multi-Service Port Sweep (Reconnaissance Probe)
+* **Severity:** `MEDIUM`
+* **Condition:** `count >= 50` AND `diff_srv_rate >= 0.70` AND `dst_host_diff_srv_rate >= 0.70`
+* **Technical Description:** Identifies horizontal and vertical port scanning behavior where a single source probes diverse destination ports and services.
+
+---
+
+## 5. Persistent Alert Storage and Incident Lifecycle
+
+The alert repository provides ACID-compliant storage via SQLite, implementing defense-in-depth principles for alert management:
+
+### 5.1 Deduplication on Active Fingerprints
+To prevent SOC alert fatigue, the storage layer implements a SQLite partial unique index:
+```sql
+CREATE UNIQUE INDEX idx_alerts_active_fingerprint
+ON alert_records (record_fingerprint)
+WHERE status IN ('NEW', 'ACKNOWLEDGED');
+```
+* When an active alert (`NEW` or `ACKNOWLEDGED`) already exists for a given network flow fingerprint, subsequent observations do not create new rows.
+* The repository automatically increments `occurrence_count`, updates `last_seen_timestamp`, appends rule triggers, and retains the highest observed severity.
+* When an alert is marked `RESOLVED`, the fingerprint is cleared from the active partial index. Future occurrences of that pattern will cleanly spawn a new alert.
+
+### 5.2 Strict Lifecycle State Machine
+Incident progression follows an auditable two-step lifecycle state machine:
+```text
+[ NEW ] --------> [ ACKNOWLEDGED ] --------> [ RESOLVED ]
+```
+* **NEW to ACKNOWLEDGED:** Analyst confirms ownership and begins investigation.
+* **ACKNOWLEDGED to RESOLVED:** Analyst applies remediation or verifies false positive, requiring mandatory analyst notes.
+* **Direct NEW to RESOLVED:** Strictly rejected with `InvalidStateTransitionError` to ensure every resolved incident has an accountable investigation trail.
+* **Post-Resolution Mutation:** Resolved alerts are immutable; transitions from `RESOLVED` back to earlier states are rejected.
+
+---
+
+## 6. Model Evaluation and Empirical Benchmark Results
+
+The frozen Random Forest binary classifier was evaluated on the independent NSL-KDD test partition (`data/raw/KDDTest+.txt`), comprising **22,544 flow records** (0 records excluded). Telemetry was computed using `threat_detection.detection.evaluator` and verified against `outputs/evaluation_metrics.json`.
+
+### 6.1 Performance Summary Metrics
+
+| Evaluation Metric | Measured Value | Percentage | Operational Significance |
+| :--- | :---: | :---: | :--- |
+| **Overall Accuracy** | `0.7735` | **77.35%** | Correct classifications across all normal and attack flows |
+| **Attack Precision** | `0.9688` | **96.88%** | High reliability: 96.88% of model-flagged attacks are genuine |
+| **Attack Recall (Detection Rate)** | `0.6221` | **62.21%** | Proportion of ground-truth attacks identified by the model |
+| **Attack F1-Score** | `0.7577` | 75.77% | Harmonic mean of attack precision and attack recall |
+| **False-Positive Rate (FPR)** | `0.0265` | **2.65%** | Exceptionally low false-alarm rate on benign baseline traffic |
+| **False-Negative Rate (FNR)** | `0.3779` | **37.79%** | Rate of missed attacks primarily driven by novel test variants |
+| **Normal Class Precision** | `0.6609` | **66.09%** | Accuracy when identifying benign network traffic |
+| **Normal Class Recall** | `0.9735` | **97.35%** | High fidelity: 97.35% of normal sessions correctly cleared |
+| **Area Under ROC Curve (ROC-AUC)** | `0.9654` | 96.54% | Strong discriminative ability across discrimination thresholds |
+| **Precision-Recall AUC (PR-AUC)** | `0.9677` | 96.77% | Area under the precision-recall curve for the attack class |
+
+### 6.2 Confusion Matrix Breakdown
+
+Orientation: Rows represent Ground Truth (Actual Class); Columns represent Model Prediction.
+
+| Ground Truth \ Predicted | Predicted Normal (Negative) | Predicted Attack (Positive) | Actual Total |
+| :--- | :---: | :---: | :---: |
+| **Actual Normal (Negative)** | **TN = 9,454** *(True Clean)* | **FP = 257** *(False Alarm)* | **9,711** |
+| **Actual Attack (Positive)** | **FN = 4,850** *(Missed Threat)* | **TP = 7,983** *(Detected Threat)* | **12,833** |
+| **Predicted Total** | **14,304** | **8,240** | **22,544** |
+
+### 6.3 Technical Error Analysis and Evaluation Policy
+1. **Low False Alarm Burden (FPR = 2.65%):** Out of 9,711 normal network flows in the benchmark test set, only 257 were flagged as false alarms. This high specificity protects security analysts from excessive triage volume.
+2. **Impact of Novel Attack Distribution (FNR = 37.79%):** The NSL-KDD test dataset intentionally includes 17 novel attack types that do not exist in the training dataset (such as `apache2`, `httptunnel`, `mailbomb`, `mscan`, `processtable`, `ps`, `saint`, and `udpstorm`). The false-negative rate illustrates the real-world limitation of static supervised learning when facing zero-day attack variations without continuous online retraining.
+3. **Ground-Truth Policy for Uncatalogued Attacks:** The benchmark test set contains 178 records labeled with `snmpgetattack`, an attack identifier not documented in the original training taxonomy. Under the system's evaluation policy (`on_unknown="attack"`), uncatalogued labels are mapped to the ground-truth `attack` class for evaluation scoring so that novel intrusions are evaluated as actual threats. This is an evaluation ground-truth assignment, not a model prediction override; model inference relies strictly on the 41 network flow features.
+
+---
+
+## 7. Technology Stack
+
+* **Programming Language:** Python 3.9+ (Verified on Python 3.13)
+* **Data Engineering and Preprocessing:** Pandas, NumPy, Scikit-Learn (`ColumnTransformer`, `OneHotEncoder`)
+* **Machine Learning and Inference:** Scikit-Learn (`RandomForestClassifier`), Joblib
+* **Data Storage and Persistence:** SQLite (Embedded relational storage with transaction control and partial unique indexes)
+* **Web Application Framework:** Streamlit (Multi-tab security operations console)
+* **Visualization and Charting:** Matplotlib, Seaborn
+* **Automated Testing:** Pytest (155 automated unit and end-to-end integration tests)
+* **Configuration Management:** Python Dotenv, TOML (`pyproject.toml`)
+
+---
+
+## 8. Repository Layout
 
 ```text
 AI-Powered-Cybersecurity-Threat-Detection/
-├── dashboard/
-│   ├── app.py                      # Multi-tab Streamlit console (Triage, Demo, Model & Rules)
-│   └── helpers.py                  # Dashboard business logic, KPIs, presets, and formatting
-├── data/
-│   ├── raw/                        # Public NSL-KDD benchmark datasets (KDDTrain+.txt, KDDTest+.txt)
-│   ├── processed/                  # Directory for preprocessed intermediate data
-│   └── sample/                     # Synthetic test telemetry fixtures
-├── docs/
-│   └── evidence/                   # Empirical phase reports, test evidence, and quality gates
-├── models/
-│   ├── baseline_rf_binary.joblib   # Frozen trained Random Forest classifier bundle
-│   └── baseline_rf_binary.metadata.json  # Serialized model hyperparameters & training metadata
-├── outputs/
-│   ├── evaluation_metrics.json     # Precomputed benchmark test metrics & confusion matrix
-│   └── threat_events.db            # Default runtime SQLite database (git-ignored)
-├── src/
-│   └── threat_detection/
-│       ├── __init__.py             # Package exports and version metadata
-│       ├── config.py               # Central project path and threshold configuration
-│       ├── data/                   # NSL-KDD schemas, loaders, validators, and CLI
-│       │   ├── cli.py              # Dataset validation CLI
-│       │   ├── loader.py           # Headerless and headered NSL-KDD CSV loader
-│       │   ├── schema.py           # 41-feature schema specifications and constants
-│       │   └── validator.py        # Non-destructive dataset integrity auditor
-│       ├── detection/              # Training, inference engine, evaluation, and rules
-│       │   ├── engine.py           # ThreatDetectionEngine and fingerprint computation
-│       │   ├── evaluate_cli.py     # Offline evaluation CLI
-│       │   ├── evaluator.py        # Metrics calculator and confusion matrix generator
-│       │   ├── rules.py            # Deterministic heuristic security rules
-│       │   ├── target.py           # Binary target formulation ('normal' vs 'attack')
-│       │   ├── train_cli.py        # Model training CLI
-│       │   └── trainer.py          # Random Forest training and artifact serialization
-│       ├── preprocessing/          # Scikit-learn ColumnTransformer feature pipeline
-│       │   └── pipeline.py
-│       └── storage/                # SQLite alert persistence and lifecycle state machine
-│           ├── models.py           # AlertRecord, AlertStatus, and exception definitions
-│           └── repository.py       # AlertRepository with deduplication and partial index
-├── tests/                          # 11 test modules with 155 automated unit and E2E tests
-│   ├── test_alert_storage.py
-│   ├── test_dashboard.py
-│   ├── test_dashboard_demo.py
-│   ├── test_dashboard_model_rules.py
-│   ├── test_data_ingestion.py
-│   ├── test_detection_engine.py
-│   ├── test_foundation.py
-│   ├── test_integration_e2e.py     # End-to-end integration test suite
-│   ├── test_model_evaluation.py
-│   ├── test_model_training.py
-│   └── test_preprocessing.py
-├── .env.example                    # Environment variable configuration template
-├── .gitignore                      # Git exclusion rules for venvs, datasets, DBs, and weights
-├── main.py                         # Application foundation entry point
-├── pyproject.toml                  # Modern setuptools packaging configuration
-└── requirements.txt                # Pinned development and runtime dependencies
+|-- .github/
+|   `-- workflows/
+|       `-- ci.yml                  # GitHub Actions continuous integration workflow
+|-- dashboard/
+|   |-- app.py                      # Multi-tab Streamlit console (Triage, Demo, Model & Rules)
+|   `-- helpers.py                  # Dashboard business logic, KPIs, presets, and formatting
+|-- data/
+|   |-- raw/                        # Directory for public NSL-KDD raw datasets (git-ignored)
+|   |-- processed/                  # Directory for preprocessed intermediate data (git-ignored)
+|   `-- sample/                     # Synthetic test telemetry fixtures
+|-- docs/
+|   |-- 01_architecture_and_system_design.md
+|   |-- 02_dataset_and_preprocessing.md
+|   |-- 03_exploratory_data_analysis.md
+|   |-- 04_model_training_and_learning.md
+|   |-- 05_validation_and_testing_guide.md
+|   |-- 06_threat_detection_engine.md
+|   |-- 07_alert_management_and_database.md
+|   |-- 08_dashboard_and_operations_guide.md
+|   |-- 09_end_to_end_integration.md
+|   |-- 10_portfolio_and_packaging_guide.md
+|   `-- evidence/                   # 11 engineering evidence reports and quality gate audits
+|-- images/                         # Screenshot gallery and system architecture diagrams
+|   |-- .gitkeep
+|   `-- README.md
+|-- models/                         # Serialized model weights and training metadata (git-ignored)
+|   `-- .gitkeep
+|-- outputs/
+|   |-- evaluation_metrics.json     # Precomputed benchmark test metrics and confusion matrix
+|   |-- figures/                    # Exported visualization figures
+|   |-- logs/                       # Application runtime logs
+|   `-- reports/                    # Generated evaluation reports
+|-- src/
+|   `-- threat_detection/
+|       |-- __init__.py             # Package exports and semantic versioning
+|       |-- config.py               # Central project path and threshold configuration
+|       |-- data/                   # NSL-KDD schema definitions, loaders, and validator CLI
+|       |-- detection/              # Random Forest trainer, inference engine, evaluation CLI, rules
+|       |-- preprocessing/          # Scikit-Learn ColumnTransformer pipeline
+|       `-- storage/                # SQLite alert persistence and lifecycle state machine
+|-- tests/                          # 11 test modules with 155 automated unit and E2E tests
+|-- .env.example                    # Environment variable configuration template
+|-- .gitignore                      # Git exclusion rules for venvs, datasets, DBs, and weights
+|-- LICENSE                         # MIT License attribution
+|-- main.py                         # Application foundation entry point
+|-- pyproject.toml                  # Modern setuptools packaging configuration
+`-- requirements.txt                # Pinned development and runtime dependencies
 ```
 
 ---
 
-## 6. Environment Setup (Windows PowerShell)
+## 9. Installation and Quickstart Guide
 
-### Prerequisites
-* Windows 10/11 with PowerShell 5.1 or PowerShell 7+
-* Python 3.9 to 3.13 installed and available on PATH
-* Git installed
+### 9.1 Prerequisites
+* Operating System: Windows 10/11, macOS, or Linux
+* Python: Version 3.9 through 3.13 installed and available on PATH
+* Git: Version 2.30+ installed
 
-### 6.1 Clone the Repository
+### 9.2 Clone the Repository
+Open a terminal (or PowerShell on Windows) and clone the repository:
 ```powershell
-git clone https://github.com/your-username/AI-Powered-Cybersecurity-Threat-Detection.git
+git clone https://github.com/nithinraam25/AI-Powered-Cybersecurity-Threat-Detection.git
 cd AI-Powered-Cybersecurity-Threat-Detection
 ```
 
-### 6.2 Virtual Environment Creation & Activation
-Create and activate an isolated Python virtual environment:
+### 9.3 Create and Activate a Virtual Environment
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
+*(On Linux or macOS, use: `source .venv/bin/activate`)*
 
-*(If script execution is restricted on your system, run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process` before activating).*
-
-### 6.3 Install Dependencies
-Upgrade pip and install runtime and development dependencies:
+### 9.4 Install Project Dependencies
+Upgrade pip and install requirements along with an editable package install:
 ```powershell
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 pip install -e ".[dev]"
 ```
 
-### 6.4 Environment Configuration (Optional)
-Copy the environment template if custom overrides are needed:
+### 9.5 Configure Environment Variables
+Copy the provided `.env.example` template to `.env`:
 ```powershell
 Copy-Item .env.example .env
 ```
+*(On Linux or macOS, use: `cp .env.example .env`)*
+
+The system functions with secure default configurations. Review `.env` if you wish to adjust SQLite paths or custom score thresholds.
 
 ---
 
-## 7. Running the Automated Test Suite
+## 10. Verification and Automated Testing
 
-The project includes 155 automated tests across 11 test modules verifying schema contracts, preprocessing, model inference, rule evaluation, SQLite persistence, lifecycle transitions, dashboard helpers, and end-to-end integration:
+The project maintains 100% test coverage across 155 automated unit and end-to-end integration tests:
 
-### Run the Complete Test Suite
+### 10.1 Run the Full Test Suite
+Execute pytest across all test modules:
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -v
 ```
-*(All 155 tests should pass in under 25 seconds with 0 failures and 0 warnings).*
+*Expected Result: 155 passed, 0 failed, 0 warnings in approximately 20 seconds.*
 
-### Run the Focused End-to-End Integration Suite
+### 10.2 Run Focused Subsystem Test Suites
+
 ```powershell
+# Run End-to-End Integration Tests
 .\.venv\Scripts\python.exe -m pytest tests/test_integration_e2e.py -v
+
+# Run Alert Repository & Deduplication Tests
+.\.venv\Scripts\python.exe -m pytest tests/test_alert_storage.py -v
+
+# Run Threat Detection Engine & Rule Tests
+.\.venv\Scripts\python.exe -m pytest tests/test_detection_engine.py -v
+
+# Run Streamlit Console Logic & Helper Tests
+.\.venv\Scripts\python.exe -m pytest tests/test_dashboard.py tests/test_dashboard_demo.py -v
 ```
 
 ---
 
-## 8. Launching the Security Operations Console
+## 11. Running the Security Operations Console
 
-To start the interactive Streamlit dashboard:
+Launch the interactive Streamlit dashboard:
 ```powershell
 .\.venv\Scripts\streamlit run dashboard/app.py
 ```
-This opens the web browser to `http://localhost:8501`, providing access to:
-1. **Alert Triage:** Real-time KPI summaries, status filtering, in-memory search, alert investigation tabs, and lifecycle actions (`Acknowledge Alert`, `Resolve Alert`).
-2. **Detection Demo:** Evaluate curated benchmark flow presets or upload single-row CSV records in memory, inspect ML decisions and rule evidence, and optionally persist findings to the SQLite database.
-3. **Model & Rules:** Inspect frozen model specifications, confusion matrix telemetry, error rates, and deterministic rule thresholds.
+The dashboard will open automatically in your browser at `http://localhost:8501`.
 
-To stop the dashboard, press `Ctrl + C` in the PowerShell terminal.
+### Console Features
+1. **Alert Triage Console:**
+   * View total alerts, active investigations, corroborated incidents, and critical severity metrics.
+   * Filter alerts by Status (`NEW`, `ACKNOWLEDGED`, `RESOLVED`) and Severity (`INFORMATIONAL`, `MEDIUM`, `HIGH`).
+   * Inspect individual flow fingerprints, model probability scores, and triggered security rules.
+   * Progress alerts through the lifecycle state machine with mandatory analyst audit notes.
+2. **Detection Demonstration Sandbox:**
+   * Load pre-configured telemetry presets representing clean web traffic, DNS traffic, SYN flood bursts, and port scans.
+   * Alternatively, upload a single-row CSV flow record to evaluate custom network telemetry.
+   * View live ML attack probability gauge, heuristic rule triggers, and hybrid triage disposition.
+   * Optionally persist newly detected incidents into the active SQLite database with deduplication.
+3. **Model and Rules Technical Specification:**
+   * Review precomputed benchmark confusion matrices and performance metrics.
+   * Inspect feature transformation dimensions (122 dense features).
+   * Review exact rule criteria, severities, and rationales for all four security rules.
+
+To terminate the dashboard, press `Ctrl + C` in your terminal.
 
 ---
 
-## 9. Command-Line Interface (CLI) Utilities
+## 12. Command-Line Interface (CLI) Tools
 
-### 9.1 Dataset Schema Conformance & Validation CLI
-Validate an NSL-KDD dataset file for column counts, null values, duplicate rows, and attack family distributions:
-
+### 12.1 Dataset Validation CLI
+Audits NSL-KDD dataset files for column counts, null values, duplicate rows, and attack family distributions:
 ```powershell
 # Validate default training set (data/raw/KDDTrain+.txt)
 .\.venv\Scripts\python.exe -m threat_detection.data.cli
@@ -279,11 +370,10 @@ Validate an NSL-KDD dataset file for column counts, null values, duplicate rows,
 .\.venv\Scripts\python.exe -m threat_detection.data.cli data/raw/KDDTest+.txt --variant with_difficulty_43
 ```
 
-### 9.2 Offline Model Evaluation CLI
-Evaluate the frozen Random Forest classifier against a test dataset without retraining or modifying model weights:
-
+### 12.2 Offline Model Evaluation CLI
+Evaluates the frozen Random Forest classifier against a test dataset without retraining or modifying model weights:
 ```powershell
-# Evaluate frozen model on KDDTest+ and display summary metrics
+# Evaluate model against KDDTest+ and display summary metrics
 .\.venv\Scripts\python.exe -m threat_detection.detection.evaluate_cli data/raw/KDDTest+.txt
 
 # Evaluate and export complete telemetry to a JSON report
@@ -292,82 +382,17 @@ Evaluate the frozen Random Forest classifier against a test dataset without retr
 
 ---
 
-## 10. Model Evaluation Results & Performance Telemetry
+## 13. Scope, Ethical Considerations, and Limitations
 
-The frozen Random Forest binary classifier was evaluated on the independent NSL-KDD test partition (`data/raw/KDDTest+.txt`), comprising **22,544 flow records** (0 excluded). Precomputed results are stored in `outputs/evaluation_metrics.json`:
-
-### Summary Metrics
-
-| Metric | Measured Value | Percentage | Description |
-| :--- | :---: | :---: | :--- |
-| **Overall Accuracy** | `0.7735` | **77.35%** | Correct classifications across all normal and attack flows |
-| **Attack Precision** | `0.9688` | **96.88%** | True attacks divided by all model-flagged attacks |
-| **Attack Recall (Detection Rate)** | `0.6221` | **62.21%** | True attacks detected divided by all actual attacks in test set |
-| **Attack F1-Score** | `0.7577` | — | Harmonic mean of attack precision and attack recall |
-| **False-Positive Rate (FPR)** | `0.0265` | **2.65%** | Normal flows incorrectly flagged as attacks ($FP = 257$) |
-| **False-Negative Rate (FNR)** | `0.3779` | **37.79%** | True attacks missed by the model ($FN = 4,850$) |
-| **Normal Class Precision** | `0.6609` | **66.09%** | True normal flows divided by all predicted normal flows |
-| **Normal Class Recall** | `0.9735` | **97.35%** | Benign sessions correctly identified as normal |
-| **ROC-AUC** | `0.9654` | — | Area under the Receiver Operating Characteristic curve |
-| **PR-AUC** | `0.9677` | — | Area under the Precision-Recall curve for the positive attack class |
-
-### Confusion Matrix Breakdown
-
-Orientation: Rows represent Ground Truth (Actual Class); Columns represent Model Prediction.
-
-| Ground Truth \ Predicted | Predicted Normal (Negative) | Predicted Attack (Positive) | Actual Total |
-| :--- | :---: | :---: | :---: |
-| **Actual Normal (Negative)** | **$TN = 9,454$** | **$FP = 257$** *(False Alarm)* | $9,711$ |
-| **Actual Attack (Positive)** | **$FN = 4,850$** *(Missed Threat)* | **$TP = 7,983$** *(Detected Threat)* | $12,833$ |
-| **Predicted Total** | $14,304$ | $8,240$ | $22,544$ |
-
-### Telemetry Observations & Evaluation Policy
-* **Low False-Alarm Rate (FPR = 2.65%):** The classifier exhibits high specificity on benign network sessions, minimizing alert fatigue for standard traffic.
-* **Degradation on Novel Attacks (FNR = 37.79%):** The test set includes 17 novel attack types not present in the training distribution. The elevated false-negative rate reflects classifier degradation when encountering zero-day structural variations without adaptive retraining.
-* **`snmpgetattack` Ground-Truth Policy:** The test partition contains 178 records of `snmpgetattack`, an attack type uncatalogued in the training taxonomy. Under the documented evaluation policy (`on_unknown="attack"`), uncatalogued labels are mapped to the ground-truth `attack` class for evaluation scoring so that novel intrusions are evaluated as actual threats. This is an evaluation ground-truth assignment, **not** a model prediction override; model inference relies strictly on the 41 network flow features.
+1. **Defensive and Research Orientation:** This software was designed exclusively for academic study, defensive triage research, and security portfolio demonstration.
+2. **Offline Telemetry vs. Live Traffic:** Telemetry records evaluated by this system represent aggregated connection flows rather than raw network packets. The system does not listen on physical network interfaces or sniff live network packets.
+3. **Advisory Decision Support:** The engine serves as an analytical assistant for security analysts. It does not perform inline firewall blocking, packet dropping, or automated host isolation.
+4. **Benchmark Generalization:** The NSL-KDD dataset is derived from academic benchmark collections. Its feature distributions do not capture modern encrypted application layers (such as TLS 1.3 or QUIC) or contemporary cloud-native attack vectors.
 
 ---
 
-## 11. Limitations & Responsible-Use Notes
+## 14. License and Attribution
 
-1. **Benchmark Data vs. Live Telemetry:** The NSL-KDD benchmark is an academic dataset derived from the 1999 KDD Cup/DARPA collection. Its feature distributions, synthetic attack mechanisms, and protocol rates do not reflect contemporary encrypted protocols (e.g., TLS 1.3, QUIC) or modern threat actor tactics.
-2. **Offline Flow Records:** Flow records represent aggregated session statistics (durations, byte counts, error rates, flag indicators) rather than raw PCAP packet streams.
-3. **No Inline Action or Automated Blocking:** The detection engine and dashboard operate purely as an analytical triage advisory. The system does not interface with firewalls, software-defined networks, or endpoint agents.
-4. **Non-Proof of Compromise:** A high attack probability or heuristic rule match indicates suspicious structural patterns in telemetry; it does not constitute conclusive forensic proof of an active data breach.
-
----
-
-## 12. Dataset Provenance & Publishing Guidelines
-
-* **Provenance:** The dataset utilized is NSL-KDD, an established benchmark developed by the University of New Brunswick (UNB) to solve duplicate record and class bias issues in the original KDD'99 collection.
-* **Version Control Policy:** Raw dataset files (`data/raw/KDDTrain+.txt`, `data/raw/KDDTest+.txt`) and serialized binary weights (`models/*.joblib`) are excluded from Git tracking via `.gitignore` to prevent repository bloat and respect dataset distribution guidelines.
-* **Publishing Instructions:** When publishing this project to public hosting (such as GitHub), do not commit raw benchmark data files or multi-megabyte binary model artifacts. Review licensing terms before redistributing external datasets.
-
----
-
-## 13. Current Implementation Status
-
-All technical phases of the core development and verification lifecycle are complete:
-
-* **Phase 1 (Project Foundation):** Complete. Modular `src`-layout packaging, configuration, `.gitignore` barriers, and environment templates.
-* **Phase 2 (Dataset Validation & Ingestion):** Complete. Schema specifications, headerless CSV parsing, non-destructive validation, and data CLI.
-* **Phase 3 (Preprocessing Pipeline):** Complete. Leakage-free `ColumnTransformer` feature engineering producing 122 dense features.
-* **Phase 4 (Model Training Pipeline):** Complete. Binary target formulation, Random Forest training workflow, and serialized artifact bundling.
-* **Phase 5 (Model Evaluation):** Complete. Comprehensive benchmark scoring, confusion matrix generation, error rate calculation, and evaluation CLI.
-* **Phase 6 (Threat Detection Engine & Rules):** Complete. 4 deterministic heuristic security rules, SHA-256 fingerprinting, correlation engine, and operational disposition synthesis.
-* **Phase 7 (SQLite Alert Persistence):** Complete. Deduplication-aware SQLite repository, partial unique indexes, multi-column filtering, and lifecycle state machine.
-* **Phase 8 (Streamlit Operations Console):** Complete. Alert Triage queue, offline Detection Demonstration tab, and technical Model & Rules documentation console.
-* **Phase 9 (End-to-End Integration & Testing):** Complete. 10 focused integration scenarios in `tests/test_integration_e2e.py`, 155 full regression tests passing, artifact SHA-256 digests verified, and final quality gate passed.
-* **Phase 10 (Portfolio Documentation & Packaging):** In progress (Task 1: Finalizing README).
-
----
-
-## 14. Potential Future Enhancements
-
-The following items represent potential extensions and future research directions:
-
-* **Multi-Class Attack Family Classification:** Extending the binary classifier (`normal` vs `attack`) to predict granular attack families (DoS, Probe, R2L, U2R).
-* **Unsupervised Anomaly Detection:** Adding Isolation Forests or Autoencoders to improve detection recall on novel zero-day attack patterns that bypass supervised models.
-* **Streaming Telemetry Ingestion:** Integrating message queue brokers (e.g., Apache Kafka or RabbitMQ) for simulated streaming batch evaluation.
-* **REST API Microservice:** Wrapping the `ThreatDetectionEngine` and `AlertRepository` in a FastAPI service with OpenAPI documentation.
-* **Automated Alert Webhook Dispatch:** Emitting incident alerts via webhooks to incident management platforms upon corroborated threat detection.
+* **Source Code License:** Released under the [MIT License](LICENSE). Copyright (c) 2026 nithinraam25.
+* **Third-Party Dependencies:** Third-party libraries (Scikit-Learn, Pandas, NumPy, Streamlit, Pytest, Joblib) remain subject to their respective open-source licenses.
+* **Dataset Attribution:** The NSL-KDD dataset was developed by the Information Security Centre of Excellence (ISCX) at the University of New Brunswick (UNB).
