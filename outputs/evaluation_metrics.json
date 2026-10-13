@@ -1,0 +1,44 @@
+{
+  "total_samples": 22544,
+  "excluded_samples": 0,
+  "accuracy": 0.7734652235628106,
+  "precision_normal": 0.660934004474273,
+  "recall_normal": 0.9735351663062507,
+  "f1_normal": 0.7873412450551739,
+  "support_normal": 9711,
+  "precision_attack": 0.9688106796116505,
+  "recall_attack": 0.6220681056650822,
+  "f1_attack": 0.7576519717173634,
+  "support_attack": 12833,
+  "macro_precision": 0.8148723420429618,
+  "macro_recall": 0.7978016359856664,
+  "macro_f1": 0.7724966083862687,
+  "weighted_precision": 0.8361904528435936,
+  "weighted_recall": 0.7734652235628106,
+  "weighted_f1": 0.7704408527226633,
+  "true_negatives": 9454,
+  "false_positives": 257,
+  "false_negatives": 4850,
+  "true_positives": 7983,
+  "false_positive_rate": 0.026464833693749357,
+  "false_negative_rate": 0.3779318943349178,
+  "roc_auc": 0.9654273083398295,
+  "pr_auc": 0.9677367532559062,
+  "unknown_labels_encountered": 178,
+  "unknown_label_names": [
+    "snmpgetattack"
+  ],
+  "unknown_policy": "attack",
+  "dataset_source": "data\\raw\\KDDTest+.txt",
+  "model_source": "models\\baseline_rf_binary.joblib",
+  "confusion_matrix_grid": [
+    [
+      9454,
+      257
+    ],
+    [
+      4850,
+      7983
+    ]
+  ]
+}

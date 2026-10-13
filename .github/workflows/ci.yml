@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# Enforce minimal read-only permissions for repository contents
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same branch or PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Run Pytest Suite
+    runs-on: ubuntu-latest
+
+    env:
+      STREAMLIT_SERVER_HEADLESS: "true"
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Run automated test suite
+        run: |
+          # The following exclusions omit tests that require local benchmark datasets
+          # (KDDTrain+.txt, KDDTest+.txt) or frozen model artifacts (baseline_rf_binary.joblib,
+          # baseline_rf_binary.metadata.json) which are intentionally excluded from Git
+          # repository tracking via .gitignore. The 130 self-contained unit and component
+          # tests execute against clean in-memory and temporary fixtures.
+          pytest --ignore=tests/test_integration_e2e.py --ignore=tests/test_dashboard_demo.py -k "not test_load_model_metadata_valid and not test_apptest_model_rules_tab_normal_rendering" -v
