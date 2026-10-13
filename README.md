@@ -34,25 +34,31 @@ This project implements a modular, hybrid threat detection architecture designed
 
 ## 2. Visual Overview and Interface Gallery
 
-The user interface is organized into three dedicated operational consoles in Streamlit. Below are direct references to the visual assets maintained in the repository:
+The user interface is organized into three dedicated operational consoles in Streamlit. Below are the verified screenshots from the live security operations console:
 
-### 2.1 System Architecture Flow
-![System Architecture Diagram](images/system_architecture_diagram.png)
-*High-level data flow illustrating telemetry ingestion, feature preprocessing, parallel model and rule evaluation, SHA-256 fingerprinting, alert deduplication, and triage presentation.*
+### 2.1 Security Operations Console: Alert Triage Queue
+![Security Operations Console: Alert Triage](images/dashboard_alert_triage.png)
+*The primary analyst console displaying real-time KPI metrics, active incident inventory, multi-criteria filtering by status and severity, free-text page search, and auditable two-step lifecycle state controls.*
 
-### 2.2 Security Operations Console: Alert Triage Queue
-![Security Operations Console - Alert Triage](images/dashboard_alert_triage.png)
-*The primary analyst console displaying real-time KPI metrics, active incident filtering by status and severity, free-text search, and explicit two-step lifecycle state controls.*
+### 2.2 Offline Detection Demonstration Sandbox
+![Offline Detection Demonstration](images/dashboard_detection_demo.png)
+*Interactive testing sandbox allowing analysts to evaluate curated NSL-KDD benchmark presets or upload single-row CSV records with immediate side-by-side ML scoring and heuristic rule diagnostics.*
 
-### 2.3 Detection Demonstration Sandbox
-![Detection Demonstration Console](images/dashboard_detection_demo.png)
-*Interactive testing sandbox allowing analysts to evaluate curated NSL-KDD attack presets or upload single-row CSV records with immediate side-by-side ML scoring and heuristic rule diagnostics.*
+### 2.3 Machine Learning Classifier and Feature Architecture
+![Machine Learning Classifier Specification](images/classifier_specification.png)
+*Technical specifications detailing the frozen Random Forest binary classifier, 122 dense encoded features via ColumnTransformer, and training partition metadata.*
 
-### 2.4 Model and Rules Technical Specifications
-![Model and Rules Technical Specification](images/dashboard_model_and_rules.png)
-*Complete architectural documentation tab showcasing confusion matrix breakdowns, false-positive metrics, ROC-AUC performance curves, and deterministic rule criteria.*
+### 2.4 Independent Benchmark Performance Overview
+![Benchmark Performance Overview](images/dashboard_model_and_rules.png)
+*Empirical evaluation metrics on the independent NSL-KDD test partition (22,544 flow records) measuring 77.35% overall accuracy, 96.88% attack precision, and 2.65% false-positive rate.*
 
-*(Note: Image files are maintained in the `images/` directory. If screenshots are pending upload, please refer to the technical diagrams and CLI output logs below).*
+### 2.5 Detailed Confusion Matrix and Error Telemetry
+![Confusion Matrix and Error Telemetry](images/confusion_matrix_analysis.png)
+*Comprehensive confusion matrix breakdown showing true negatives (9,454), false alarms (257), missed threats (4,850), detected attacks (7,983), and operational error identification.*
+
+### 2.6 Operational Triage and Disposition Policy
+![Operational Triage Disposition Policy](images/disposition_policy.png)
+*Correlation synthesis matrix defining how statistical model predictions and deterministic heuristic rule matches combine into standardized triage dispositions.*
 
 ---
 

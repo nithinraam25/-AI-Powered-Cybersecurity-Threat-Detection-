@@ -2,11 +2,15 @@
 
 This directory contains visual assets, system architecture diagrams, and user interface screenshots for the AI-Powered Cybersecurity Threat Detection System.
 
-## Expected Image Assets
+## Active Screenshot Gallery
 
-* `system_architecture_diagram.png`: High-level diagram showing the 41-feature data flow through the preprocessing pipeline, random forest model, deterministic heuristic rules, and SQLite alert repository.
-* `dashboard_alert_triage.png`: Screenshot of the Streamlit Security Operations Console Alert Triage queue, displaying active alerts, severity badges, and analyst lifecycle actions.
-* `dashboard_detection_demo.png`: Screenshot of the Detection Demonstration tab showing preset evaluation, CSV uploads, attack probability gauges, and rule trigger explanations.
-* `dashboard_model_and_rules.png`: Screenshot of the Model and Rules technical specification tab displaying benchmark performance telemetry, confusion matrix metrics, and heuristic rule criteria.
+* `dashboard_alert_triage.png`: Live screenshot of the Streamlit Security Operations Console Alert Triage queue, displaying active alert inventory, severity badges, and analyst lifecycle actions.
+* `dashboard_detection_demo.png`: Live screenshot of the Offline Detection Demonstration tab showing benchmark preset evaluation, input flow selection, and detection diagnostics.
+* `classifier_specification.png`: Live screenshot of the Machine Learning Classifier Specification displaying Random Forest configuration, 122 dense encoded features, and training dataset telemetry.
+* `dashboard_model_and_rules.png`: Live screenshot of the Independent Benchmark Performance Overview on NSL-KDD Test Set (77.35% accuracy, 96.88% precision, 2.65% false-positive rate).
+* `confusion_matrix_analysis.png`: Live screenshot of the Confusion Matrix breakdown and detailed class-level evaluation metrics.
+* `disposition_policy.png`: Live screenshot of the Operational Triage Interaction and Disposition Policy matrix.
 
-When new screenshots or diagrams are captured, place the image files in this directory with the filenames listed above to display them automatically in the root README.md file.
+## Raw Capture Archive
+
+The `proof/` sub-directory preserves the original unedited display captures captured during operational testing.
